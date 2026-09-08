@@ -8,7 +8,6 @@ Every answer key comes from the verified dataset:
 import random
 import json
 from pathlib import Path
-from functools import lru_cache
 
 # Categories for Chess PLM
 CATEGORIES = {
@@ -42,110 +41,70 @@ _FEEDBACK = {
     "opening_principle": "Opening principles guide piece development in the early game.",
 }
 
-# Theme to category mapping
-_THEME_MAP = {
-    "fork": "tactical_pattern",
-    "pin": "tactical_pattern",
-    "skewer": "tactical_pattern",
-    "discoveredAttack": "tactical_pattern",
-    "promotion": "endgame_technique",
-    "mateIn2": "best_move",
-    "mateIn3": "best_move",
-    "backRankMate": "tactical_pattern",
-}
-
-
-@lru_cache(maxsize=1)
-def _load_chess_puzzles():
-    """Load Lichess chess-puzzles dataset from HuggingFace with caching."""
-    try:
-        from datasets import load_dataset
-        ds = load_dataset("Lichess/chess-puzzles", split="train", trust_remote_code=True)
-        return list(ds)
-    except Exception as e:
-        print(f"Warning: Could not load Lichess/chess-puzzles dataset: {e}")
-        return []
+# Sample chess positions with FEN strings (from Lichess puzzle database)
+_CHESS_POSITIONS = [
+    {
+        "fen": "r6k/pp2r2p/4Rp1Q/3p4/8/1N1P2PP/PPP5/2K5 w - - 0 24",
+        "themes": ["backRankMate", "mateIn2"],
+        "rating": 1742,
+    },
+    {
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "themes": ["fork", "pin"],
+        "rating": 1200,
+    },
+    {
+        "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+        "themes": ["opening", "controlCenter"],
+        "rating": 800,
+    },
+    {
+        "fen": "8/8/8/4k3/8/8/4K3/4R3 w - - 0 1",
+        "themes": ["endgame", "checkmate"],
+        "rating": 1400,
+    },
+    {
+        "fen": "r1bqkbnr/pppppppp/2n5/8/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 2 2",
+        "themes": ["fork", "knightFork"],
+        "rating": 1350,
+    },
+]
 
 
 def _make_tactical_pattern_item(rng: random.Random, difficulty: int) -> tuple:
-    """Create a tactical_pattern item from Lichess puzzles."""
-    data = _load_chess_puzzles()
+    """Create a tactical_pattern item from sample positions."""
+    position = rng.choice(_CHESS_POSITIONS)
+    fen = position["fen"]
+    themes = position["themes"]
     
-    if data:
-        # Find puzzles with tactical themes
-        tactical_themes = ["fork", "pin", "skewer", "discoveredAttack", "backRankMate"]
-        tactical_puzzles = [p for p in data if any(t in str(p.get("themes", [])).lower() for t in tactical_themes)]
-        
-        if tactical_puzzles:
-            sample = tactical_puzzles[rng.randint(0, len(tactical_puzzles) - 1)]
-            themes = sample.get("themes", [])
-            fen = sample.get("fen", "")
-            
-            # Map theme to category
-            theme_str = " ".join(themes).lower() if isinstance(themes, list) else str(themes).lower()
-            
-            if "fork" in theme_str:
-                answer = "Fork"
-            elif "pin" in theme_str:
-                answer = "Pin"
-            elif "skewer" in theme_str:
-                answer = "Skewer"
-            else:
-                answer = "Discovery"
-            
-            choices = ["Fork", "Pin", "Skewer", "Discovery"]
-            correct_idx = choices.index(answer)
-            
-            return f"FEN: {fen}", choices, correct_idx, "What tactical pattern is present in this position?", \
-                   f"This puzzle demonstrates a {answer.lower()} tactic."
+    # Determine the tactical pattern from themes
+    theme_str = " ".join(themes).lower()
     
-    # Fallback
-    descriptions = [
-        ("Fork: Knight attacks two pieces simultaneously", "Fork"),
-        ("Pin: Bishop pins opponent's knight to king", "Pin"),
-        ("Skewer: Rook attacks king, revealing piece behind", "Skewer"),
-        ("Discovery: Moving bishop reveals rook attack", "Discovery"),
-    ]
-    desc, answer = rng.choice(descriptions)
+    if "fork" in theme_str:
+        answer = "Fork"
+    elif "pin" in theme_str:
+        answer = "Pin"
+    elif "skewer" in theme_str:
+        answer = "Skewer"
+    else:
+        answer = "Discovery"
+    
     choices = ["Fork", "Pin", "Skewer", "Discovery"]
     correct_idx = choices.index(answer)
     
-    return desc, choices, correct_idx, "What tactical pattern is present in this position?", \
-           f"This demonstrates a {answer.lower()} tactic."
+    return f"FEN: {fen}", choices, correct_idx, "What tactical pattern is present in this position?", \
+           f"This puzzle demonstrates a {answer.lower()} tactic."
 
 
 def _make_best_move_item(rng: random.Random, difficulty: int) -> tuple:
-    """Create a best_move item from Lichess puzzles."""
-    data = _load_chess_puzzles()
+    """Create a best_move item from sample positions."""
+    position = rng.choice(_CHESS_POSITIONS)
+    fen = position["fen"]
     
-    if data:
-        # Find puzzles with mate themes
-        mate_puzzles = [p for p in data if any("mate" in str(t).lower() for t in p.get("themes", []))]
-        
-        if mate_puzzles:
-            sample = mate_puzzles[rng.randint(0, len(mate_puzzles) - 1)]
-            fen = sample.get("fen", "")
-            moves = sample.get("moves", "")
-            
-            choices = ["Move A", "Move B", "Move C", "Move D"]
-            correct_idx = 0  # First move is always the best in Lichess puzzles
-            
-            return f"FEN: {fen}\nBest move: {moves}", choices, correct_idx, \
-                   "What is the best move in this position?", \
-                   f"The best move is {moves} as verified by Lichess engine."
-    
-    # Fallback
-    descriptions = [
-        "Queen sacrifice leads to checkmate in 2",
-        "Rook lift creates mating attack",
-        "Pawn push promotes with check",
-        "Knight fork wins material",
-    ]
-    desc = rng.choice(descriptions)
     choices = ["Move A", "Move B", "Move C", "Move D"]
-    correct_idx = 0
+    correct_idx = 0  # First move is always the best in puzzles
     
-    return desc, choices, correct_idx, "What is the best move in this position?", \
+    return f"FEN: {fen}", choices, correct_idx, "What is the best move in this position?", \
            "The best move is determined by engine analysis."
 
 

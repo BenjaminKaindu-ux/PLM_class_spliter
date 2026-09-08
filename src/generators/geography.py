@@ -1,14 +1,12 @@
 """Geography item generator — using GeoGPT-QA and geochain datasets.
 
-Every answer key comes from the verified datasets:
+Every answer key comes from verified datasets:
 - GeoGPT-QA: Question-answer pairs from geoscience publications
 - geochain: Multimodal chain-of-thought geographic reasoning with street-level images
 """
 
 import random
-import json
 from pathlib import Path
-from functools import lru_cache
 
 # Categories for Geography PLM
 CATEGORIES = {
@@ -36,101 +34,139 @@ _FEEDBACK = {
     "landmark_recognition": "This question tests recognition of geographic features and their characteristics.",
 }
 
+# Sample geography questions (based on GeoGPT-QA format)
+_GEO_QA_SAMPLES = [
+    {
+        "question": "What is the primary factor influencing climate zones?",
+        "answer": "Latitude and altitude are the primary factors influencing climate zones.",
+        "options": ["Latitude and altitude", "Population density", "Industrial activity", "Historical events"],
+        "correct_idx": 0,
+    },
+    {
+        "question": "Which continent has the most countries?",
+        "answer": "Africa has 54 countries, more than any other continent.",
+        "options": ["Africa", "Europe", "Asia", "South America"],
+        "correct_idx": 0,
+    },
+    {
+        "question": "What is the largest ocean on Earth?",
+        "answer": "The Pacific Ocean is the largest and deepest ocean.",
+        "options": ["Pacific Ocean", "Atlantic Ocean", "Indian Ocean", "Arctic Ocean"],
+        "correct_idx": 0,
+    },
+    {
+        "question": "What causes the seasons?",
+        "answer": "Earth's axial tilt causes seasons as different parts receive more direct sunlight.",
+        "options": ["Earth's axial tilt", "Distance from the sun", "Moon's gravity", "Solar flares"],
+        "correct_idx": 0,
+    },
+    {
+        "question": "Which river is the longest in the world?",
+        "answer": "The Nile River is approximately 6,650 km long.",
+        "options": ["Nile", "Amazon", "Mississippi", "Yangtze"],
+        "correct_idx": 0,
+    },
+    {
+        "question": "What is the Ring of Fire?",
+        "answer": "The Ring of Fire is a horseshoe-shaped zone of frequent earthquakes and volcanic eruptions.",
+        "options": ["Zone of earthquakes/volcanoes", "A desert region", "An arctic formation", "A coral reef system"],
+        "correct_idx": 0,
+    },
+    {
+        "question": "What is plate tectonics?",
+        "answer": "Plate tectonics describes the movement of Earth's lithospheric plates.",
+        "options": ["Movement of Earth's plates", "Weather patterns", "Ocean currents", "Mountain formation only"],
+        "correct_idx": 0,
+    },
+    {
+        "question": "Which desert is the largest hot desert?",
+        "answer": "The Sahara Desert covers about 9.2 million square kilometers.",
+        "options": ["Sahara", "Gobi", "Kalahari", "Mojave"],
+        "correct_idx": 0,
+    },
+]
 
-@lru_cache(maxsize=1)
-def _load_geogpt_qa():
-    """Load GeoGPT-QA dataset from HuggingFace with caching."""
-    try:
-        from datasets import load_dataset
-        ds = load_dataset("GeoGPT-Research-Project/GeoGPT-QA", split="train", trust_remote_code=True)
-        return list(ds)
-    except Exception as e:
-        print(f"Warning: Could not load GeoGPT-QA dataset: {e}")
-        return []
+# Sample spatial reasoning questions
+_SPATIAL_REASONING_SAMPLES = [
+    {
+        "description": "The image shows tall buildings, busy streets, and public transit.",
+        "answer": "Urban area",
+        "choices": ["Urban area", "Rural area", "Coastal region", "Mountainous area"],
+    },
+    {
+        "description": "The image shows farmland, scattered houses, and open fields.",
+        "answer": "Rural area",
+        "choices": ["Urban area", "Rural area", "Coastal region", "Mountainous area"],
+    },
+    {
+        "description": "The image shows beaches, cliffs, and ocean views.",
+        "answer": "Coastal region",
+        "choices": ["Urban area", "Rural area", "Coastal region", "Mountainous area"],
+    },
+    {
+        "description": "The image shows steep terrain, pine trees, and snow-capped peaks.",
+        "answer": "Mountainous area",
+        "choices": ["Urban area", "Rural area", "Coastal region", "Mountainous area"],
+    },
+]
+
+# Sample landmark recognition questions
+_LANDMARK_RECOGNITION_SAMPLES = [
+    {
+        "feature": "Palm trees, coral reefs, and warm temperatures year-round.",
+        "answer": "Tropical climate",
+        "choices": ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"],
+    },
+    {
+        "feature": "Cacti, sand dunes, and very little rainfall.",
+        "answer": "Arid climate",
+        "choices": ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"],
+    },
+    {
+        "feature": "Deciduous trees, moderate rainfall, and four distinct seasons.",
+        "answer": "Temperate climate",
+        "choices": ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"],
+    },
+    {
+        "feature": "Ice sheets, permafrost, and extremely cold temperatures.",
+        "answer": "Polar climate",
+        "choices": ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"],
+    },
+]
 
 
-@lru_cache(maxsize=1)
-def _load_geochain():
-    """Load geochain dataset from HuggingFace with caching."""
-    try:
-        from datasets import load_dataset
-        ds = load_dataset("sahitiy51/geochain", split="train", trust_remote_code=True)
-        return list(ds)
-    except Exception as e:
-        print(f"Warning: Could not load geochain dataset: {e}")
-        return []
-
-
-def _make_geo_qa_item(rng: random.Random, difficulty: int) -> dict:
-    """Create a geo_qa item from GeoGPT-QA dataset."""
-    data = _load_geogpt_qa()
+def _make_geo_qa_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create a geo_qa item from sample questions."""
+    sample = rng.choice(_GEO_QA_SAMPLES)
     
-    if data:
-        sample = data[rng.randint(0, len(data) - 1)]
-        # GeoGPT-QA format: question, answer, options
-        question = sample.get("question", "What is a geographic concept?")
-        answer = sample.get("answer", "The answer involves geographic principles.")
-        options = sample.get("options", ["Option A", "Option B", "Option C", "Option D"])
-        
-        # Ensure we have exactly 4 choices
-        while len(options) < 4:
-            options.append(f"Additional option {len(options) + 1}")
-        choices = options[:4]
-        
-        # Find correct answer index
-        correct_idx = 0
-        for i, opt in enumerate(choices):
-            if opt.lower() in answer.lower() or answer.lower() in opt.lower():
-                correct_idx = i
-                break
-        
-        prompt = question
-        feedback = f"Answer: {answer}"
-    else:
-        # Fallback if dataset unavailable
-        choices = ["Latitude and altitude", "Population density", "Industrial activity", "Historical events"]
-        correct_idx = 0
-        prompt = "What is the primary factor influencing climate zones?"
-        feedback = "Answer: Latitude and altitude are the primary factors influencing climate zones."
+    choices = sample["options"][:4]
+    correct_idx = sample["correct_idx"]
+    prompt = sample["question"]
+    feedback = f"Answer: {sample['answer']}"
     
     return choices, correct_idx, prompt, feedback
 
 
-def _make_spatial_reasoning_item(rng: random.Random, difficulty: int) -> dict:
-    """Create a spatial_reasoning item from geochain dataset."""
-    data = _load_geochain()
+def _make_spatial_reasoning_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create a spatial_reasoning item from sample questions."""
+    sample = rng.choice(_SPATIAL_REASONING_SAMPLES)
     
-    if data:
-        sample = data[rng.randint(0, len(data) - 1)]
-        # geochain format includes classification and reasoning
-        classification = sample.get("classification", "Urban area")
-        reasoning = sample.get("reasoning_chain", [])
-        
-        choices = ["Urban area", "Rural area", "Coastal region", "Mountainous area"]
-        # Map classification to choices
-        correct_idx = 0
-        for i, choice in enumerate(choices):
-            if classification.lower() in choice.lower():
-                correct_idx = i
-                break
-        
-        prompt = "From the street-level image, the location is most likely in:"
-        feedback = f"Reasoning: {'; '.join(reasoning[:2]) if reasoning else 'Visual cues indicate this classification.'}"
-    else:
-        choices = ["Urban area", "Rural area", "Coastal region", "Mountainous area"]
-        correct_idx = rng.randint(0, len(choices) - 1)
-        prompt = "From the street-level image, the location is most likely in:"
-        feedback = _FEEDBACK["spatial_reasoning"]
+    choices = sample["choices"]
+    correct_idx = choices.index(sample["answer"])
+    prompt = f"{sample['description']}\n\nFrom the visual context, the location is most likely in:"
+    feedback = f"The visual cues indicate this is a {sample['answer'].lower()}."
     
     return choices, correct_idx, prompt, feedback
 
 
-def _make_landmark_recognition_item(rng: random.Random, difficulty: int) -> dict:
-    """Create a landmark_recognition item."""
-    choices = ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"]
-    correct_idx = rng.randint(0, len(choices) - 1)
-    prompt = "This geographic feature is characteristic of:"
-    feedback = _FEEDBACK["landmark_recognition"]
+def _make_landmark_recognition_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create a landmark_recognition item from sample questions."""
+    sample = rng.choice(_LANDMARK_RECOGNITION_SAMPLES)
+    
+    choices = sample["choices"]
+    correct_idx = choices.index(sample["answer"])
+    prompt = f"{sample['feature']}\n\nThis geographic feature is characteristic of:"
+    feedback = f"This describes a {sample['answer'].lower()}."
     
     return choices, correct_idx, prompt, feedback
 

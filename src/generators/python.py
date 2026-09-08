@@ -6,9 +6,7 @@ Every answer key comes from the verified dataset:
 """
 
 import random
-import json
 from pathlib import Path
-from functools import lru_cache
 
 # Categories for Python PLM
 CATEGORIES = {
@@ -42,95 +40,76 @@ _FEEDBACK = {
     "code_output": "Tracing code execution helps predict program behavior.",
 }
 
+# Sample basic syntax questions
+_BASIC_SYNTAX_SAMPLES = [
+    {"code": "x = [1, 2, 3]\nprint(len(x))", "answer": "3", "choices": ["3", "Error", "None", "6"]},
+    {"code": "name = 'Python'\nprint(name.upper())", "answer": "PYTHON", "choices": ["PYTHON", "python", "Python", "Error"]},
+    {"code": "for i in range(3):\n    print(i, end=' ')", "answer": "0 1 2", "choices": ["0 1 2", "1 2 3", "0 1 2 3", "Error"]},
+    {"code": "x = 5\ny = x + 2\nprint(y)", "answer": "7", "choices": ["7", "5", "Error", "12"]},
+    {"code": "print(type(42))", "answer": "<class 'int'>", "choices": ["<class 'int'>", "<class 'float'>", "<class 'str'>", "Error"]},
+]
 
-@lru_cache(maxsize=1)
-def _load_code_exercise():
-    """Load CodeExercise-Python-27k dataset from HuggingFace with caching."""
-    try:
-        from datasets import load_dataset
-        ds = load_dataset("codefuse-ai/CodeExercise-Python-27k", split="train", trust_remote_code=True)
-        return list(ds)
-    except Exception as e:
-        print(f"Warning: Could not load CodeExercise-Python-27k dataset: {e}")
-        return []
+# Sample data structures questions
+_DATA_STRUCTURES_SAMPLES = [
+    {"question": "Which is mutable?", "answer": "List", "choices": ["List", "Dictionary", "Set", "Tuple"]},
+    {"question": "Which is unordered?", "answer": "Set", "choices": ["List", "Dictionary", "Set", "Tuple"]},
+    {"question": "Which maintains order?", "answer": "List", "choices": ["List", "Dictionary", "Set", "Tuple"]},
+    {"question": "Which is key-value pairs?", "answer": "Dictionary", "choices": ["List", "Dictionary", "Set", "Tuple"]},
+    {"question": "Which is immutable?", "answer": "Tuple", "choices": ["List", "Dictionary", "Set", "Tuple"]},
+]
+
+# Sample algorithm logic questions
+_ALGORITHM_LOGIC_SAMPLES = [
+    {"question": "Linear search complexity?", "answer": "O(n)", "choices": ["O(1)", "O(n)", "O(n²)", "O(log n)"]},
+    {"question": "Binary search complexity?", "answer": "O(log n)", "choices": ["O(1)", "O(n)", "O(n²)", "O(log n)"]},
+    {"question": "Bubble sort complexity?", "answer": "O(n²)", "choices": ["O(1)", "O(n)", "O(n²)", "O(log n)"]},
+    {"question": "Access by index in array?", "answer": "O(1)", "choices": ["O(1)", "O(n)", "O(n²)", "O(log n)"]},
+    {"question": "Insert at beginning of linked list?", "answer": "O(1)", "choices": ["O(1)", "O(n)", "O(n²)", "O(log n)"]},
+]
+
+# Sample code output questions
+_CODE_OUTPUT_SAMPLES = [
+    {"code": "def f(x): return x * 2\nprint(f(5))", "answer": "10", "choices": ["10", "5", "Error", "2"]},
+    {"code": "x = [1, 2, 3]\nx.append(4)\nprint(len(x))", "answer": "4", "choices": ["4", "3", "Error", "5"]},
+    {"code": "print('Hello' + ' ' + 'World')", "answer": "Hello World", "choices": ["Hello World", "HelloWorld", "Error", "Hello  World"]},
+    {"code": "x = {'a': 1, 'b': 2}\nprint(x['a'])", "answer": "1", "choices": ["1", "2", "Error", "'a'"]},
+    {"code": "print(10 // 3)", "answer": "3", "choices": ["3", "3.33", "Error", "4"]},
+]
 
 
 def _make_basic_syntax_item(rng: random.Random, difficulty: int) -> tuple:
-    """Create a basic_syntax item from dataset or fallback."""
-    data = _load_code_exercise()
+    """Create a basic_syntax item from sample questions."""
+    sample = rng.choice(_BASIC_SYNTAX_SAMPLES)
     
-    # Filter for basic syntax exercises
-    syntax_exercises = [d for d in data if "syntax" in str(d.get("topic", "")).lower() or 
-                       "basic" in str(d.get("topic", "")).lower()] if data else []
-    
-    if syntax_exercises:
-        sample = syntax_exercises[rng.randint(0, len(syntax_exercises) - 1)]
-        code = sample.get("code", "x = 1\nprint(x)")
-        expected = sample.get("expected_output", "1")
-        choices = [expected, "Syntax error", "Runtime error", "None"]
-        correct_idx = 0
-        prompt = "What is the output of this Python code?"
-        feedback = f"The code executes correctly and produces: {expected}"
-    else:
-        # Fallback code snippets
-        snippets = [
-            ("x = [1, 2, 3]\nprint(len(x))", "3"),
-            ("name = 'Python'\nprint(name.upper())", "PYTHON"),
-            ("for i in range(3):\n    print(i, end=' ')", "0 1 2"),
-        ]
-        code, expected = rng.choice(snippets)
-        choices = [expected, "Error", "None", "Different"]
-        correct_idx = 0
-        prompt = "What is the output of this Python code?"
-        feedback = f"The code executes correctly and produces: {expected}"
-    
-    return code, choices, correct_idx, prompt, feedback
+    return sample["code"], sample["choices"], 0, "What is the output of this Python code?", \
+           f"The code executes correctly and produces: {sample['answer']}"
 
 
 def _make_data_structures_item(rng: random.Random, difficulty: int) -> tuple:
-    """Create a data_structures item."""
-    questions = [
-        ("Which is mutable?", "List", ["List", "Dictionary", "Set", "Tuple"]),
-        ("Which is unordered?", "Set", ["List", "Dictionary", "Set", "Tuple"]),
-        ("Which maintains order?", "List", ["List", "Dictionary", "Set", "Tuple"]),
-        ("Which is key-value pairs?", "Dictionary", ["List", "Dictionary", "Set", "Tuple"]),
-    ]
+    """Create a data_structures item from sample questions."""
+    sample = rng.choice(_DATA_STRUCTURES_SAMPLES)
+    correct_idx = sample["choices"].index(sample["answer"])
     
-    question, answer, choices = rng.choice(questions)
-    correct_idx = choices.index(answer)
-    
-    return f"code: {question}", choices, correct_idx, question, _FEEDBACK["data_structures"]
+    return f"code: {sample['question']}", sample["choices"], correct_idx, sample["question"], \
+           _FEEDBACK["data_structures"]
 
 
 def _make_algorithm_logic_item(rng: random.Random, difficulty: int) -> tuple:
-    """Create an algorithm_logic item."""
-    questions = [
-        ("Linear search complexity?", "O(n)"),
-        ("Binary search complexity?", "O(log n)"),
-        ("Bubble sort complexity?", "O(n²)"),
-        ("Access by index in array?", "O(1)"),
-    ]
+    """Create an algorithm_logic item from sample questions."""
+    sample = rng.choice(_ALGORITHM_LOGIC_SAMPLES)
+    correct_idx = sample["choices"].index(sample["answer"])
     
-    question, answer = rng.choice(questions)
-    choices = ["O(1)", "O(n)", "O(n²)", "O(log n)"]
-    correct_idx = choices.index(answer) if answer in choices else 1
-    
-    return f"code: {question}", choices, correct_idx, question, _FEEDBACK["algorithm_logic"]
+    return f"code: {sample['question']}", sample["choices"], correct_idx, sample["question"], \
+           _FEEDBACK["algorithm_logic"]
 
 
 def _make_code_output_item(rng: random.Random, difficulty: int) -> tuple:
-    """Create a code_output item."""
-    snippets = [
-        ("def f(x): return x * 2\nprint(f(5))", "10"),
-        ("x = [1, 2, 3]\nx.append(4)\nprint(len(x))", "4"),
-        ("print('Hello' + ' ' + 'World')", "Hello World"),
-    ]
+    """Create a code_output item from sample questions."""
+    sample = rng.choice(_CODE_OUTPUT_SAMPLES)
+    correct_idx = sample["choices"].index(sample["answer"])
     
-    code, expected = rng.choice(snippets)
-    choices = [expected, "Error", "None", "Different"]
-    correct_idx = 0
-    
-    return code, choices, correct_idx, "What will this function return?", _FEEDBACK["code_output"]
+    return sample["code"], sample["choices"], correct_idx, "What will this function return?", \
+           _FEEDBACK["code_output"]
 
 
 def make_item(category: str, rng: random.Random | None = None, difficulty: int = 1) -> dict:

@@ -115,7 +115,7 @@ def _switch_course(course: str):
 
 
 with gr.Blocks() as student_demo:
-    gr.Markdown("# 🧠 PLM Factory — Student Drill")
+    gr.Markdown("## 📚 Student Drill — Choose your domain and start training!")
     course_dd = gr.Dropdown(choices=list(COURSES), value="GEOGRAPHY", label="Course")
     blurb_md = gr.Markdown(COURSES["GEOGRAPHY"]["blurb"])
     gr.Markdown(
@@ -224,10 +224,14 @@ with gr.Blocks() as agent_debug:
 
 
 with gr.Blocks(title="PLM Factory") as demo:
-    gr.Markdown("# PLM Factory")
-    with gr.Tab("GEOGRAPHY Student Demo"):
+    gr.Markdown("# 🧠 PLM Factory — Adaptive Perceptual Learning Drills")
+    gr.Markdown(
+        "Train your intuition with timed drills across **Geography**, **Python**, and **Chess**. "
+        "Categories retire as you master them (4 consecutive fast-and-correct answers)."
+    )
+    with gr.Tab("📚 Student Demo"):
         student_demo.render()
-    with gr.Tab("Agent Debug (dev)"):
+    with gr.Tab("🤖 Agent Debug (dev)"):
         agent_debug.render()
 
 if __name__ == "__main__":
