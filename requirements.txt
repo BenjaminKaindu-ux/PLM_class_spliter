@@ -1,0 +1,11 @@
+gradio
+numpy
+matplotlib
+pillow
+smolagents
+chromadb
+huggingface_hub>=1.15.0
+datasets
+ddgs
+markdownify
+requests

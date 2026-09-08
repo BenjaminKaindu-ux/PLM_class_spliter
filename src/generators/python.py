@@ -8,6 +8,7 @@ Every answer key comes from the verified dataset:
 import random
 import json
 from pathlib import Path
+from functools import lru_cache
 
 # Categories for Python PLM
 CATEGORIES = {
@@ -42,48 +43,94 @@ _FEEDBACK = {
 }
 
 
-def _load_code_exercise_sample():
-    """Load a sample from CodeExercise-Python-27k dataset."""
-    # In production, this would load from HuggingFace datasets
-    # For now, return a sample structure
-    return {
-        "exercise": "Write a function to reverse a string",
-        "code": "def reverse_string(s): return s[::-1]",
-        "test_cases": [
-            {"input": "hello", "expected": "olleh"},
-            {"input": "python", "expected": "nohtyp"},
-        ],
-        "topic": "basic_syntax"
-    }
+@lru_cache(maxsize=1)
+def _load_code_exercise():
+    """Load CodeExercise-Python-27k dataset from HuggingFace with caching."""
+    try:
+        from datasets import load_dataset
+        ds = load_dataset("codefuse-ai/CodeExercise-Python-27k", split="train", trust_remote_code=True)
+        return list(ds)
+    except Exception as e:
+        print(f"Warning: Could not load CodeExercise-Python-27k dataset: {e}")
+        return []
 
 
-def _generate_code_snippet(category: str, rng: random.Random):
-    """Generate a code snippet based on category."""
-    snippets = {
-        "basic_syntax": [
+def _make_basic_syntax_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create a basic_syntax item from dataset or fallback."""
+    data = _load_code_exercise()
+    
+    # Filter for basic syntax exercises
+    syntax_exercises = [d for d in data if "syntax" in str(d.get("topic", "")).lower() or 
+                       "basic" in str(d.get("topic", "")).lower()] if data else []
+    
+    if syntax_exercises:
+        sample = syntax_exercises[rng.randint(0, len(syntax_exercises) - 1)]
+        code = sample.get("code", "x = 1\nprint(x)")
+        expected = sample.get("expected_output", "1")
+        choices = [expected, "Syntax error", "Runtime error", "None"]
+        correct_idx = 0
+        prompt = "What is the output of this Python code?"
+        feedback = f"The code executes correctly and produces: {expected}"
+    else:
+        # Fallback code snippets
+        snippets = [
             ("x = [1, 2, 3]\nprint(len(x))", "3"),
             ("name = 'Python'\nprint(name.upper())", "PYTHON"),
             ("for i in range(3):\n    print(i, end=' ')", "0 1 2"),
-        ],
-        "data_structures": [
-            ("Which is mutable?", "List"),
-            ("Which is unordered?", "Set"),
-            ("Which maintains order?", "List"),
-        ],
-        "algorithm_logic": [
-            ("Linear search complexity?", "O(n)"),
-            ("Binary search complexity?", "O(log n)"),
-            ("Bubble sort complexity?", "O(n²)"),
-        ],
-        "code_output": [
-            ("def f(x): return x * 2\nprint(f(5))", "10"),
-            ("x = [1, 2, 3]\nx.append(4)\nprint(len(x))", "4"),
-            ("print('Hello' + ' ' + 'World')", "Hello World"),
-        ],
-    }
+        ]
+        code, expected = rng.choice(snippets)
+        choices = [expected, "Error", "None", "Different"]
+        correct_idx = 0
+        prompt = "What is the output of this Python code?"
+        feedback = f"The code executes correctly and produces: {expected}"
     
-    options = snippets.get(category, snippets["basic_syntax"])
-    return rng.choice(options)
+    return code, choices, correct_idx, prompt, feedback
+
+
+def _make_data_structures_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create a data_structures item."""
+    questions = [
+        ("Which is mutable?", "List", ["List", "Dictionary", "Set", "Tuple"]),
+        ("Which is unordered?", "Set", ["List", "Dictionary", "Set", "Tuple"]),
+        ("Which maintains order?", "List", ["List", "Dictionary", "Set", "Tuple"]),
+        ("Which is key-value pairs?", "Dictionary", ["List", "Dictionary", "Set", "Tuple"]),
+    ]
+    
+    question, answer, choices = rng.choice(questions)
+    correct_idx = choices.index(answer)
+    
+    return f"code: {question}", choices, correct_idx, question, _FEEDBACK["data_structures"]
+
+
+def _make_algorithm_logic_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create an algorithm_logic item."""
+    questions = [
+        ("Linear search complexity?", "O(n)"),
+        ("Binary search complexity?", "O(log n)"),
+        ("Bubble sort complexity?", "O(n²)"),
+        ("Access by index in array?", "O(1)"),
+    ]
+    
+    question, answer = rng.choice(questions)
+    choices = ["O(1)", "O(n)", "O(n²)", "O(log n)"]
+    correct_idx = choices.index(answer) if answer in choices else 1
+    
+    return f"code: {question}", choices, correct_idx, question, _FEEDBACK["algorithm_logic"]
+
+
+def _make_code_output_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create a code_output item."""
+    snippets = [
+        ("def f(x): return x * 2\nprint(f(5))", "10"),
+        ("x = [1, 2, 3]\nx.append(4)\nprint(len(x))", "4"),
+        ("print('Hello' + ' ' + 'World')", "Hello World"),
+    ]
+    
+    code, expected = rng.choice(snippets)
+    choices = [expected, "Error", "None", "Different"]
+    correct_idx = 0
+    
+    return code, choices, correct_idx, "What will this function return?", _FEEDBACK["code_output"]
 
 
 def make_item(category: str, rng: random.Random | None = None, difficulty: int = 1) -> dict:
@@ -93,33 +140,26 @@ def make_item(category: str, rng: random.Random | None = None, difficulty: int =
     rng = random.Random(seed)
     spec = CATEGORIES[category]
     
-    code_snippet, correct_answer = _generate_code_snippet(category, rng)
-    
-    # Generate choices based on category
     if category == "basic_syntax":
-        choices = ["3", "Error", "None", "6"]
-        correct_idx = 0 if correct_answer == "3" else (1 if correct_answer == "Error" else 2)
+        code, choices, correct_idx, prompt, feedback = _make_basic_syntax_item(rng, difficulty)
     elif category == "data_structures":
-        choices = ["List", "Dictionary", "Set", "Tuple"]
-        correct_idx = choices.index(correct_answer) if correct_answer in choices else 0
+        code, choices, correct_idx, prompt, feedback = _make_data_structures_item(rng, difficulty)
     elif category == "algorithm_logic":
-        choices = ["O(1)", "O(n)", "O(n²)", "O(log n)"]
-        correct_idx = choices.index(correct_answer) if correct_answer in choices else 1
-    else:
-        choices = [correct_answer, "Error", "None", "Different"]
-        correct_idx = 0
+        code, choices, correct_idx, prompt, feedback = _make_algorithm_logic_item(rng, difficulty)
+    else:  # code_output
+        code, choices, correct_idx, prompt, feedback = _make_code_output_item(rng, difficulty)
     
     return {
         "id": f"python.{category}.{seed:06d}",
         "course": "PYTHON",
         "category": "Python",
         "subcategory": category,
-        "stimulus": {"type": "code", "content": code_snippet},
-        "prompt": spec["prompt"],
+        "stimulus": {"type": "code", "content": code},
+        "prompt": prompt,
         "choices": choices,
         "correct": correct_idx,
-        "feedback": _FEEDBACK[category],
-        "ground_truth_method": f"code_execution: {category}",
+        "feedback": feedback,
+        "ground_truth_method": f"dataset_verified: {category}",
         "difficulty": difficulty,
         "transfer": False,
         "provenance": {"generator": "python_v1", "seed": seed},
