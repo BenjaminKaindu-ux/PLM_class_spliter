@@ -3,6 +3,8 @@
 Every answer key comes from the verified dataset:
 - Lichess/chess-puzzles: 6.1M puzzles with FEN positions, solution moves,
   ratings, and themes
+
+Now includes chess board image generation from FEN using python-chess.
 """
 
 import random
@@ -47,28 +49,59 @@ _CHESS_POSITIONS = [
         "fen": "r6k/pp2r2p/4Rp1Q/3p4/8/1N1P2PP/PPP5/2K5 w - - 0 24",
         "themes": ["backRankMate", "mateIn2"],
         "rating": 1742,
+        "description": "White to move - back rank mate threat",
     },
     {
         "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
         "themes": ["fork", "pin"],
         "rating": 1200,
+        "description": "Italian Game position - knight fork opportunity",
     },
     {
         "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
         "themes": ["opening", "controlCenter"],
         "rating": 800,
+        "description": "King's Pawn Opening - black to respond",
     },
     {
         "fen": "8/8/8/4k3/8/8/4K3/4R3 w - - 0 1",
         "themes": ["endgame", "checkmate"],
         "rating": 1400,
+        "description": "King and rook vs king endgame",
     },
     {
         "fen": "r1bqkbnr/pppppppp/2n5/8/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 2 2",
         "themes": ["fork", "knightFork"],
         "rating": 1350,
+        "description": "Black knight fork opportunity",
     },
 ]
+
+
+def generate_board_image(fen: str, size: int = 350) -> str:
+    """Generate a chess board image from FEN notation.
+    
+    Args:
+        fen: FEN string representing the chess position
+        size: Size of the board image in pixels
+        
+    Returns:
+        SVG string of the chess board
+    """
+    try:
+        import chess
+        import chess.svg
+        
+        # Create board from FEN
+        board = chess.Board(fen)
+        
+        # Generate SVG
+        svg = chess.svg.board(board, size=size, coordinates=True)
+        
+        return svg
+    except Exception as e:
+        # Fallback: return a simple text representation
+        return f"<svg width='{size}' height='{size}'><text x='10' y='20'>Chess Board</text><text x='10' y='40'>FEN: {fen[:50]}...</text></svg>"
 
 
 def _make_tactical_pattern_item(rng: random.Random, difficulty: int) -> tuple:
@@ -92,8 +125,11 @@ def _make_tactical_pattern_item(rng: random.Random, difficulty: int) -> tuple:
     choices = ["Fork", "Pin", "Skewer", "Discovery"]
     correct_idx = choices.index(answer)
     
-    return f"FEN: {fen}", choices, correct_idx, "What tactical pattern is present in this position?", \
-           f"This puzzle demonstrates a {answer.lower()} tactic."
+    # Generate board image
+    board_image = generate_board_image(fen)
+    
+    return board_image, choices, correct_idx, f"What tactical pattern is present?\n\n{position['description']}", \
+           f"This puzzle demonstrates a {answer.lower()} tactic. Rating: {position['rating']}"
 
 
 def _make_best_move_item(rng: random.Random, difficulty: int) -> tuple:
@@ -104,8 +140,11 @@ def _make_best_move_item(rng: random.Random, difficulty: int) -> tuple:
     choices = ["Move A", "Move B", "Move C", "Move D"]
     correct_idx = 0  # First move is always the best in puzzles
     
-    return f"FEN: {fen}", choices, correct_idx, "What is the best move in this position?", \
-           "The best move is determined by engine analysis."
+    # Generate board image
+    board_image = generate_board_image(fen)
+    
+    return board_image, choices, correct_idx, f"What is the best move?\n\n{position['description']}", \
+           f"The best move is determined by engine analysis. Rating: {position['rating']}"
 
 
 def _make_endgame_technique_item(rng: random.Random, difficulty: int) -> tuple:
@@ -121,8 +160,11 @@ def _make_endgame_technique_item(rng: random.Random, difficulty: int) -> tuple:
     choices = ["Promote pawn", "Checkmate", "Stalemate", "Draw by repetition"]
     correct_idx = choices.index(answer)
     
-    return question, choices, correct_idx, "What is the correct endgame technique here?", \
-           _FEEDBACK["endgame_technique"]
+    # Use a relevant endgame position
+    endgame_fen = "8/8/8/4k3/8/8/4K3/4R3 w - - 0 1"
+    board_image = generate_board_image(endgame_fen)
+    
+    return board_image, choices, correct_idx, question, _FEEDBACK["endgame_technique"]
 
 
 def _make_opening_principle_item(rng: random.Random, difficulty: int) -> tuple:
@@ -138,8 +180,11 @@ def _make_opening_principle_item(rng: random.Random, difficulty: int) -> tuple:
     choices = ["Control the center", "Develop pieces", "King safety", "All of the above"]
     correct_idx = choices.index(answer)
     
-    return question, choices, correct_idx, "Which opening principle applies here?", \
-           _FEEDBACK["opening_principle"]
+    # Use an opening position
+    opening_fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+    board_image = generate_board_image(opening_fen)
+    
+    return board_image, choices, correct_idx, question, _FEEDBACK["opening_principle"]
 
 
 def make_item(category: str, rng: random.Random | None = None, difficulty: int = 1) -> dict:
@@ -163,7 +208,7 @@ def make_item(category: str, rng: random.Random | None = None, difficulty: int =
         "course": "CHESS",
         "category": "Chess",
         "subcategory": category,
-        "stimulus": {"type": "text", "content": stimulus},
+        "stimulus": {"type": "chess_board", "content": stimulus, "fen": _get_fen_for_category(category, rng)},
         "prompt": prompt,
         "choices": choices,
         "correct": correct_idx,
@@ -173,3 +218,14 @@ def make_item(category: str, rng: random.Random | None = None, difficulty: int =
         "transfer": False,
         "provenance": {"generator": "chess_v1", "seed": seed},
     }
+
+
+def _get_fen_for_category(category: str, rng: random.Random) -> str:
+    """Get a FEN string for the given category."""
+    if category in ["tactical_pattern", "best_move"]:
+        position = rng.choice(_CHESS_POSITIONS[:2])  # Use tactical positions
+        return position["fen"]
+    elif category == "endgame_technique":
+        return "8/8/8/4k3/8/8/4K3/4R3 w - - 0 1"  # Endgame position
+    else:  # opening_principle
+        return "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"  # Opening position

@@ -62,14 +62,118 @@ def new_session(course: str) -> ArtsTracker:
     return ArtsTracker([CategoryState(name=n, rt_threshold_s=s["rt_threshold_s"]) for n, s in categories.items()])
 
 
+def _create_map_figure(map_data: dict):
+    """Create a Plotly map figure from map data."""
+    try:
+        import plotly.graph_objects as go
+        
+        fig = go.Figure()
+        
+        # Add a marker at the location
+        fig.add_trace(go.Scattermap(
+            lat=[map_data["marker_lat"]],
+            lon=[map_data["marker_lon"]],
+            mode='markers',
+            marker=go.scattermap.Marker(
+                size=14,
+                color='red',
+                symbol='star',
+            ),
+            text=[map_data["marker_name"]],
+            textposition="top center",
+            textfont=dict(size=12, color="black"),
+            name="Location",
+        ))
+        
+        fig.update_layout(
+            mapbox_style="open-street-map",
+            mapbox=dict(
+                center=dict(lat=map_data["center_lat"], lon=map_data["center_lon"]),
+                zoom=map_data.get("zoom", 3),
+            ),
+            margin=dict(l=0, r=0, t=30, b=0),
+            height=350,
+            showlegend=False,
+        )
+        
+        return fig
+    except Exception as e:
+        # Fallback: return empty figure
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        fig.update_layout(
+            annotations=[dict(text=f"Map error: {str(e)}", showarrow=False, x=0.5, y=0.5)],
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+        )
+        return fig
+
+
+def _create_chess_board_image(fen: str):
+    """Create a chess board image from FEN notation."""
+    try:
+        import chess
+        import chess.svg
+        from PIL import Image
+        import io
+        import base64
+        
+        # Create board from FEN
+        board = chess.Board(fen)
+        
+        # Generate SVG
+        svg_str = chess.svg.board(board, size=350, coordinates=True)
+        
+        # Convert SVG to PNG using cairosvg
+        try:
+            from cairosvg import svg2png
+            png_data = svg2png(bytestring=svg_str.encode('utf-8'))
+            
+            # Convert to PIL Image
+            image = Image.open(io.BytesIO(png_data))
+            return image
+        except ImportError:
+            # Fallback: create a simple text image
+            image = Image.new('RGB', (350, 350), color='white')
+            from PIL import ImageDraw, ImageFont
+            draw = ImageDraw.Draw(image)
+            
+            # Draw board representation
+            draw.text((10, 10), "Chess Board", fill='black')
+            draw.text((10, 30), f"FEN: {fen[:40]}...", fill='black')
+            draw.text((10, 50), "Install cairosvg for full rendering", fill='gray')
+            
+            return image
+    except Exception as e:
+        # Fallback: create error image
+        from PIL import Image, ImageDraw
+        image = Image.new('RGB', (350, 350), color='white')
+        draw = ImageDraw.Draw(image)
+        draw.text((10, 10), "Chess Board Error", fill='red')
+        draw.text((10, 30), str(e)[:50], fill='black')
+        return image
+
+
 def next_trial(course: str, tracker: ArtsTracker | None):
     if tracker is None:
         tracker = new_session(course)
     if tracker.all_retired() and tracker.trial > 0:
         done = "🎉 **All categories retired — session mastered!** Press *New session* to restart."
-        return tracker, None, gr.Image(visible=False), done, *[gr.Button(visible=False)] * MAX_CHOICES, tracker.summary(), None
+        return (
+            tracker,
+            None,
+            gr.Image(visible=False),
+            gr.Code(visible=False),
+            gr.Plot(visible=False),
+            done,
+            *[gr.Button(visible=False)] * MAX_CHOICES,
+            tracker.summary(),
+            None,
+        )
+    
     cat = tracker.next_category()
     item = COURSES[course]["make_item"](cat)
+    
     buttons = [
         gr.Button(value=item["choices"][i], visible=True, interactive=True) if i < len(item["choices"])
         else gr.Button(visible=False)
@@ -78,17 +182,33 @@ def next_trial(course: str, tracker: ArtsTracker | None):
     
     # Handle different stimulus types
     stimulus = item.get("stimulus", {})
-    if stimulus.get("type") == "pil_image":
-        img = gr.Image(value=stimulus["image"], visible=True)
-    elif stimulus.get("type") == "code":
-        img = gr.Image(visible=False)
-    else:
-        img = gr.Image(visible=False)
+    stimulus_type = stimulus.get("type", "text")
+    
+    # Default values
+    img = gr.Image(visible=False)
+    code = gr.Code(visible=False)
+    plot = gr.Plot(visible=False)
+    
+    if stimulus_type == "map" and "map_data" in stimulus:
+        # Geography - show map
+        fig = _create_map_figure(stimulus["map_data"])
+        plot = gr.Plot(value=fig, visible=True)
+    elif stimulus_type == "code" and "content" in stimulus:
+        # Python - show code with syntax highlighting
+        code = gr.Code(value=stimulus["content"], language="python", visible=True)
+    elif stimulus_type == "chess_board" and "fen" in stimulus:
+        # Chess - show board image
+        img = gr.Image(value=_create_chess_board_image(stimulus["fen"]), visible=True)
+    elif stimulus_type == "pil_image":
+        # Legacy PIL image support
+        img = gr.Image(value=stimulus.get("image"), visible=True)
     
     return (
         tracker,
         item,
         img,
+        code,
+        plot,
         f"### {item['prompt']}",
         *buttons,
         tracker.summary(),
@@ -110,8 +230,8 @@ def answer(idx: int, course: str, tracker: ArtsTracker, item: dict, t0: float):
 
 
 def _switch_course(course: str):
-    tr, item, img_u, prompt_u, *btns, stats_u, t0_u = next_trial(course, new_session(course))
-    return COURSES[course]["blurb"], tr, item, img_u, prompt_u, *btns, stats_u, t0_u
+    tr, item, img_u, code_u, plot_u, prompt_u, *btns, stats_u, t0_u = next_trial(course, new_session(course))
+    return COURSES[course]["blurb"], tr, item, img_u, code_u, plot_u, prompt_u, *btns, stats_u, t0_u
 
 
 with gr.Blocks() as student_demo:
@@ -126,7 +246,11 @@ with gr.Blocks() as student_demo:
 
     with gr.Row():
         with gr.Column(scale=3):
-            img = gr.Image(visible=False, show_label=False, type="pil")
+            # Visual components for different stimulus types
+            img = gr.Image(visible=False, show_label=False)
+            code = gr.Code(visible=False, label="Python Code", language="python")
+            plot = gr.Plot(visible=False, label="Geography Map")
+            
             prompt_md = gr.Markdown("Press **Next trial** to begin.")
             with gr.Row():
                 btns = [gr.Button(visible=False) for _ in range(MAX_CHOICES)]
@@ -138,7 +262,7 @@ with gr.Blocks() as student_demo:
             gr.Markdown("### Session progress")
             stats = gr.Dataframe(interactive=False)
 
-    trial_outputs = [tracker_s, item_s, img, prompt_md, *btns, stats, t0_s]
+    trial_outputs = [tracker_s, item_s, img, code, plot, prompt_md, *btns, stats, t0_s]
 
     next_btn.click(next_trial, [course_dd, tracker_s], trial_outputs).then(lambda: "", None, feedback_md)
     reset_btn.click(lambda c: next_trial(c, new_session(c)), [course_dd], trial_outputs).then(lambda: "", None, feedback_md)

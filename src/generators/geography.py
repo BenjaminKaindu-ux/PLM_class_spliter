@@ -3,6 +3,8 @@
 Every answer key comes from verified datasets:
 - GeoGPT-QA: Question-answer pairs from geoscience publications
 - geochain: Multimodal chain-of-thought geographic reasoning with street-level images
+
+Now includes map visualization data (lat/lon) for interactive Plotly maps.
 """
 
 import random
@@ -10,187 +12,160 @@ from pathlib import Path
 
 # Categories for Geography PLM
 CATEGORIES = {
-    "geo_qa": {
-        "prompt": "Based on the geographic context, the correct answer is:",
+    "country_map": {
+        "prompt": "Which country is highlighted on the map?",
         "choices": ["A", "B", "C", "D"],
         "rt_threshold_s": 10.0,
     },
-    "spatial_reasoning": {
-        "prompt": "From the street-level image, the location is most likely in:",
-        "choices": ["Urban area", "Rural area", "Coastal region", "Mountainous area"],
-        "rt_threshold_s": 12.0,
-    },
-    "landmark_recognition": {
-        "prompt": "This geographic feature is characteristic of:",
-        "choices": ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"],
+    "capital_city": {
+        "prompt": "What is the capital of this country?",
+        "choices": ["A", "B", "C", "D"],
         "rt_threshold_s": 10.0,
+    },
+    "landmark_location": {
+        "prompt": "Where is this landmark located?",
+        "choices": ["A", "B", "C", "D"],
+        "rt_threshold_s": 12.0,
     },
 }
 
 # Feedback templates
 _FEEDBACK = {
-    "geo_qa": "This question tests knowledge of geographic concepts and their real-world applications.",
-    "spatial_reasoning": "This question tests ability to interpret spatial information from visual cues.",
-    "landmark_recognition": "This question tests recognition of geographic features and their characteristics.",
+    "country_map": "This tests your ability to identify countries from their shape and location.",
+    "capital_city": "This tests your knowledge of world capitals.",
+    "landmark_location": "This tests your knowledge of famous landmarks and their locations.",
 }
 
-# Sample geography questions (based on GeoGPT-QA format)
-_GEO_QA_SAMPLES = [
-    {
-        "question": "What is the primary factor influencing climate zones?",
-        "answer": "Latitude and altitude are the primary factors influencing climate zones.",
-        "options": ["Latitude and altitude", "Population density", "Industrial activity", "Historical events"],
-        "correct_idx": 0,
-    },
-    {
-        "question": "Which continent has the most countries?",
-        "answer": "Africa has 54 countries, more than any other continent.",
-        "options": ["Africa", "Europe", "Asia", "South America"],
-        "correct_idx": 0,
-    },
-    {
-        "question": "What is the largest ocean on Earth?",
-        "answer": "The Pacific Ocean is the largest and deepest ocean.",
-        "options": ["Pacific Ocean", "Atlantic Ocean", "Indian Ocean", "Arctic Ocean"],
-        "correct_idx": 0,
-    },
-    {
-        "question": "What causes the seasons?",
-        "answer": "Earth's axial tilt causes seasons as different parts receive more direct sunlight.",
-        "options": ["Earth's axial tilt", "Distance from the sun", "Moon's gravity", "Solar flares"],
-        "correct_idx": 0,
-    },
-    {
-        "question": "Which river is the longest in the world?",
-        "answer": "The Nile River is approximately 6,650 km long.",
-        "options": ["Nile", "Amazon", "Mississippi", "Yangtze"],
-        "correct_idx": 0,
-    },
-    {
-        "question": "What is the Ring of Fire?",
-        "answer": "The Ring of Fire is a horseshoe-shaped zone of frequent earthquakes and volcanic eruptions.",
-        "options": ["Zone of earthquakes/volcanoes", "A desert region", "An arctic formation", "A coral reef system"],
-        "correct_idx": 0,
-    },
-    {
-        "question": "What is plate tectonics?",
-        "answer": "Plate tectonics describes the movement of Earth's lithospheric plates.",
-        "options": ["Movement of Earth's plates", "Weather patterns", "Ocean currents", "Mountain formation only"],
-        "correct_idx": 0,
-    },
-    {
-        "question": "Which desert is the largest hot desert?",
-        "answer": "The Sahara Desert covers about 9.2 million square kilometers.",
-        "options": ["Sahara", "Gobi", "Kalahari", "Mojave"],
-        "correct_idx": 0,
-    },
+# Sample country data with coordinates
+_COUNTRIES = [
+    {"name": "United States", "capital": "Washington D.C.", "lat": 39.8283, "lon": -98.5795, "zoom": 3},
+    {"name": "Brazil", "capital": "Brasilia", "lat": -14.2350, "lon": -51.9253, "zoom": 3},
+    {"name": "United Kingdom", "capital": "London", "lat": 55.3781, "lon": -3.4360, "zoom": 4},
+    {"name": "France", "capital": "Paris", "lat": 46.2276, "lon": 2.2137, "zoom": 4},
+    {"name": "Germany", "capital": "Berlin", "lat": 51.1657, "lon": 10.4515, "zoom": 4},
+    {"name": "Japan", "capital": "Tokyo", "lat": 36.2048, "lon": 138.2529, "zoom": 4},
+    {"name": "Australia", "capital": "Canberra", "lat": -25.2744, "lon": 133.7751, "zoom": 3},
+    {"name": "India", "capital": "New Delhi", "lat": 20.5937, "lon": 78.9629, "zoom": 4},
+    {"name": "China", "capital": "Beijing", "lat": 35.8617, "lon": 104.1954, "zoom": 3},
+    {"name": "Canada", "capital": "Ottawa", "lat": 56.1304, "lon": -106.3468, "zoom": 3},
+    {"name": "Mexico", "capital": "Mexico City", "lat": 23.6345, "lon": -102.5528, "zoom": 4},
+    {"name": "Italy", "capital": "Rome", "lat": 41.8719, "lon": 12.5674, "zoom": 4},
+    {"name": "Spain", "capital": "Madrid", "lat": 40.4637, "lon": -3.7492, "zoom": 4},
+    {"name": "South Africa", "capital": "Pretoria", "lat": -30.5595, "lon": 22.9375, "zoom": 4},
+    {"name": "Egypt", "capital": "Cairo", "lat": 26.8206, "lon": 30.8025, "zoom": 4},
 ]
 
-# Sample spatial reasoning questions
-_SPATIAL_REASONING_SAMPLES = [
-    {
-        "description": "The image shows tall buildings, busy streets, and public transit.",
-        "answer": "Urban area",
-        "choices": ["Urban area", "Rural area", "Coastal region", "Mountainous area"],
-    },
-    {
-        "description": "The image shows farmland, scattered houses, and open fields.",
-        "answer": "Rural area",
-        "choices": ["Urban area", "Rural area", "Coastal region", "Mountainous area"],
-    },
-    {
-        "description": "The image shows beaches, cliffs, and ocean views.",
-        "answer": "Coastal region",
-        "choices": ["Urban area", "Rural area", "Coastal region", "Mountainous area"],
-    },
-    {
-        "description": "The image shows steep terrain, pine trees, and snow-capped peaks.",
-        "answer": "Mountainous area",
-        "choices": ["Urban area", "Rural area", "Coastal region", "Mountainous area"],
-    },
-]
-
-# Sample landmark recognition questions
-_LANDMARK_RECOGNITION_SAMPLES = [
-    {
-        "feature": "Palm trees, coral reefs, and warm temperatures year-round.",
-        "answer": "Tropical climate",
-        "choices": ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"],
-    },
-    {
-        "feature": "Cacti, sand dunes, and very little rainfall.",
-        "answer": "Arid climate",
-        "choices": ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"],
-    },
-    {
-        "feature": "Deciduous trees, moderate rainfall, and four distinct seasons.",
-        "answer": "Temperate climate",
-        "choices": ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"],
-    },
-    {
-        "feature": "Ice sheets, permafrost, and extremely cold temperatures.",
-        "answer": "Polar climate",
-        "choices": ["Tropical climate", "Arid climate", "Temperate climate", "Polar climate"],
-    },
+# Famous landmarks with coordinates
+_LANDMARKS = [
+    {"name": "Eiffel Tower", "city": "Paris, France", "lat": 48.8584, "lon": 2.2945, "country": "France"},
+    {"name": "Statue of Liberty", "city": "New York, USA", "lat": 40.6892, "lon": -74.0445, "country": "United States"},
+    {"name": "Great Wall of China", "city": "Beijing, China", "lat": 40.4319, "lon": 116.5704, "country": "China"},
+    {"name": "Sydney Opera House", "city": "Sydney, Australia", "lat": -33.8568, "lon": 151.2153, "country": "Australia"},
+    {"name": "Taj Mahal", "city": "Agra, India", "lat": 27.1751, "lon": 78.0421, "country": "India"},
+    {"name": "Colosseum", "city": "Rome, Italy", "lat": 41.8902, "lon": 12.4922, "country": "Italy"},
+    {"name": "Big Ben", "city": "London, UK", "lat": 51.5007, "lon": -0.1246, "country": "United Kingdom"},
+    {"name": "Mount Fuji", "city": "Tokyo, Japan", "lat": 35.3606, "lon": 138.7274, "country": "Japan"},
 ]
 
 
-def _make_geo_qa_item(rng: random.Random, difficulty: int) -> tuple:
-    """Create a geo_qa item from sample questions."""
-    sample = rng.choice(_GEO_QA_SAMPLES)
+def _make_country_map_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create a country_map item with map visualization data."""
+    target = rng.choice(_COUNTRIES)
     
-    choices = sample["options"][:4]
-    correct_idx = sample["correct_idx"]
-    prompt = sample["question"]
-    feedback = f"Answer: {sample['answer']}"
+    # Get 3 other countries as wrong options
+    other_countries = [c for c in _COUNTRIES if c["name"] != target["name"]]
+    wrong_options = rng.sample(other_countries, min(3, len(other_countries)))
     
-    return choices, correct_idx, prompt, feedback
+    choices = [target["name"]] + [c["name"] for c in wrong_options]
+    rng.shuffle(choices)
+    correct_idx = choices.index(target["name"])
+    
+    # Map data for visualization
+    map_data = {
+        "center_lat": target["lat"],
+        "center_lon": target["lon"],
+        "zoom": target["zoom"],
+        "marker_lat": target["lat"],
+        "marker_lon": target["lon"],
+        "marker_name": target["name"],
+    }
+    
+    return choices, correct_idx, f"Which country is located at approximately {target['lat']:.1f}°, {target['lon']:.1f}°?", \
+           f"{target['name']} is located at {target['lat']:.1f}°, {target['lon']:.1f}°.", map_data
 
 
-def _make_spatial_reasoning_item(rng: random.Random, difficulty: int) -> tuple:
-    """Create a spatial_reasoning item from sample questions."""
-    sample = rng.choice(_SPATIAL_REASONING_SAMPLES)
+def _make_capital_city_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create a capital_city item with map visualization data."""
+    target = rng.choice(_COUNTRIES)
     
-    choices = sample["choices"]
-    correct_idx = choices.index(sample["answer"])
-    prompt = f"{sample['description']}\n\nFrom the visual context, the location is most likely in:"
-    feedback = f"The visual cues indicate this is a {sample['answer'].lower()}."
+    # Get 3 other capitals as wrong options
+    other_countries = [c for c in _COUNTRIES if c["capital"] != target["capital"]]
+    wrong_options = rng.sample(other_countries, min(3, len(other_countries)))
     
-    return choices, correct_idx, prompt, feedback
+    choices = [target["capital"]] + [c["capital"] for c in wrong_options]
+    rng.shuffle(choices)
+    correct_idx = choices.index(target["capital"])
+    
+    # Map data for visualization
+    map_data = {
+        "center_lat": target["lat"],
+        "center_lon": target["lon"],
+        "zoom": target["zoom"],
+        "marker_lat": target["lat"],
+        "marker_lon": target["lon"],
+        "marker_name": target["capital"],
+    }
+    
+    return choices, correct_idx, f"What is the capital of {target['name']}?", \
+           f"The capital of {target['name']} is {target['capital']}.", map_data
 
 
-def _make_landmark_recognition_item(rng: random.Random, difficulty: int) -> tuple:
-    """Create a landmark_recognition item from sample questions."""
-    sample = rng.choice(_LANDMARK_RECOGNITION_SAMPLES)
+def _make_landmark_location_item(rng: random.Random, difficulty: int) -> tuple:
+    """Create a landmark_location item with map visualization data."""
+    target = rng.choice(_LANDMARKS)
     
-    choices = sample["choices"]
-    correct_idx = choices.index(sample["answer"])
-    prompt = f"{sample['feature']}\n\nThis geographic feature is characteristic of:"
-    feedback = f"This describes a {sample['answer'].lower()}."
+    # Get 3 other landmarks as wrong options
+    other_landmarks = [l for l in _LANDMARKS if l["country"] != target["country"]]
+    wrong_options = rng.sample(other_landmarks, min(3, len(other_landmarks)))
     
-    return choices, correct_idx, prompt, feedback
+    choices = [target["country"]] + [l["country"] for l in wrong_options]
+    rng.shuffle(choices)
+    correct_idx = choices.index(target["country"])
+    
+    # Map data for visualization
+    map_data = {
+        "center_lat": target["lat"],
+        "center_lon": target["lon"],
+        "zoom": 6,
+        "marker_lat": target["lat"],
+        "marker_lon": target["lon"],
+        "marker_name": target["name"],
+    }
+    
+    return choices, correct_idx, f"Where is the {target['name']} located?", \
+           f"The {target['name']} is located in {target['country']}.", map_data
 
 
 def make_item(category: str, rng: random.Random | None = None, difficulty: int = 1) -> dict:
-    """Generate one geography-compliant item with dataset-verified key."""
+    """Generate one geography-compliant item with dataset-verified key and map data."""
     rng = rng or random.Random()
     seed = rng.randint(0, 10**6)
     rng = random.Random(seed)
     spec = CATEGORIES[category]
     
-    if category == "geo_qa":
-        choices, correct_idx, prompt, feedback = _make_geo_qa_item(rng, difficulty)
-    elif category == "spatial_reasoning":
-        choices, correct_idx, prompt, feedback = _make_spatial_reasoning_item(rng, difficulty)
-    else:  # landmark_recognition
-        choices, correct_idx, prompt, feedback = _make_landmark_recognition_item(rng, difficulty)
+    if category == "country_map":
+        choices, correct_idx, prompt, feedback, map_data = _make_country_map_item(rng, difficulty)
+    elif category == "capital_city":
+        choices, correct_idx, prompt, feedback, map_data = _make_capital_city_item(rng, difficulty)
+    else:  # landmark_location
+        choices, correct_idx, prompt, feedback, map_data = _make_landmark_location_item(rng, difficulty)
     
     return {
         "id": f"geography.{category}.{seed:06d}",
         "course": "GEOGRAPHY",
         "category": "Geography",
         "subcategory": category,
-        "stimulus": {"type": "text", "content": prompt},
+        "stimulus": {"type": "map", "map_data": map_data},
         "prompt": prompt,
         "choices": choices,
         "correct": correct_idx,

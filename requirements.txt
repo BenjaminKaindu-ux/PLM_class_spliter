@@ -9,3 +9,6 @@ datasets
 ddgs
 markdownify
 requests
+plotly
+python-chess
+cairosvg
